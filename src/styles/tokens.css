@@ -1,0 +1,69 @@
+/* Design tokens — diturunkan dari Design DNA dashboard TikTok LIVE
+   (lihat design/design-dna.json). Warna bertanda "measured" diukur langsung
+   dari screenshot dengan skrip design-dna/measure-colors. */
+:root {
+  /* Permukaan */
+  --bg: #0c0d0e;
+  --surface: #1f2021;            /* measured: latar dashboard */
+  --surface-2: #26282a;
+  --surface-3: #303235;
+  --glass: rgba(31, 32, 33, 0.66);
+  --glass-strong: rgba(31, 32, 33, 0.86);
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: #444547;        /* measured: border kontrol */
+
+  /* Teks */
+  --text: #fdfdfd;               /* measured */
+  --text-2: #c8c8c8;             /* measured */
+  --text-3: #8b8d8d;             /* measured */
+
+  /* Brand */
+  --accent: #45abaa;             /* measured: teal highlight */
+  --accent-fill: #007471;        /* measured: checkbox aktif */
+  --accent-deep: #0e4d4b;        /* measured */
+  --crimson: #8b3143;            /* measured: gradien hero */
+  --plum: #5c333c;               /* measured */
+  --teal-deep: #304745;          /* measured */
+  --ink: #272023;                /* measured */
+  --hero-gradient: linear-gradient(115deg, #8b3143 0%, #6a3240 32%, #3f3a3e 62%, #304745 100%);
+
+  /* Status (dipisah dari warna brand; selalu disertai ikon + label) */
+  --good: #4fd18b;
+  --ok: #8fb8ff;
+  --warn: #f4b740;
+  --crit: #ff5a74;
+  --info: #9aa4b2;
+
+  /* Tipografi */
+  --font: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
+  --fs-display: clamp(48px, 7vw, 84px);
+  --fs-h1: clamp(26px, 3vw, 34px);
+  --fs-h2: 21px;
+  --fs-h3: 16px;
+  --fs-body: 15px;
+  --fs-small: 13px;
+  --fs-caption: 12px;
+  --fs-overline: 11px;
+
+  /* Ruang & bentuk */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s7: 32px; --s8: 40px; --s9: 56px; --s10: 80px;
+  --r-sm: 6px;
+  --r-md: 12px;
+  --r-lg: 18px;
+  --r-xl: 26px;
+  --r-pill: 999px;
+
+  /* Elevasi (mode gelap → border + cahaya, bukan bayangan tebal) */
+  --shadow-low: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 8px 24px rgba(0, 0, 0, 0.25);
+  --shadow-high: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 24px 60px rgba(0, 0, 0, 0.45);
+  --glow-accent: 0 0 0 1px rgba(69, 171, 170, 0.35), 0 10px 40px rgba(0, 116, 113, 0.35);
+
+  /* Gerak */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --d-micro: 0.18s;
+  --d-normal: 0.45s;
+  --d-macro: 0.9s;
+
+  color-scheme: dark;
+}

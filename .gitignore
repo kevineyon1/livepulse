@@ -1,0 +1,7 @@
+node_modules/
+dist/
+# Screenshot asli toko (data penjualan) — jangan pernah di-commit
+samples/
+*.log
+.DS_Store
+.claude/
