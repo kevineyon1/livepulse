@@ -3,15 +3,22 @@
 //   1. Patokan absolut per KPI (benchmarks.js)            → "angka ini rendah"
 //   2. Pola antar-metrik (rasio yang jomplang)             → "masalahnya di sini, bukan di sana"
 //   3. Perbandingan dengan median live sebelumnya & momentum dalam satu live → "beda dari biasanya"
+//
+// Bahasa output sengaja bahasa lapangan (script, etalase, kamera, promo), bukan istilah
+// metrik. Angka teknis tetap ada di field `tech` untuk yang ingin melihat.
 
 import { derive } from './derive.js';
 import { resolveKpis, statusOf, scoreOf, STAGES, STATUS, DEFAULT_SETTINGS } from './benchmarks.js';
 import { CORE_16 } from './metrics.js';
 import { fmt } from './format.js';
+import { perHundred, baseFor, cap, lowerFirst, rupiah, angka, durasi, perRupiah, change, plainValue } from './plain.js';
 
 const ok = (v) => typeof v === 'number' && Number.isFinite(v);
 const BAD = new Set(['critical', 'warning']);
 const SEV_RANK = { critical: 0, warning: 1, info: 2, good: 3 };
+
+/** Satu langkah aksi: siapa yang mengerjakan, topiknya, dan kalimat perintahnya. */
+const act = (who, tag, text) => ({ who, tag, text });
 
 export function median(arr) {
   const a = arr.filter(ok).sort((x, y) => x - y);
@@ -22,21 +29,32 @@ export function median(arr) {
 
 // Metrik mentah yang dibandingkan dengan histori (selain KPI).
 const TREND_METRICS = [
-  { id: 'gmvPerHour', label: 'GMV per jam', unit: 'currency', higher: true },
-  { id: 'gmv', label: 'GMV', unit: 'currency', higher: true },
-  { id: 'impressions', label: 'Impressions', unit: 'count', higher: true },
-  { id: 'views', label: 'Views', unit: 'count', higher: true },
-  { id: 'orders', label: 'Orders', unit: 'count', higher: true },
-  { id: 'aov', label: 'AOV', unit: 'currency', higher: true },
-  { id: 'watchGpm', label: 'Watch GPM', unit: 'currency', higher: true },
+  { id: 'gmvPerHour', label: 'GMV per jam', plain: 'Omzet per jam', unit: 'currency', higher: true },
+  { id: 'gmv', label: 'GMV', plain: 'Omzet', unit: 'currency', higher: true },
+  { id: 'impressions', label: 'Impressions', plain: 'Tampil di FYP', unit: 'count', higher: true },
+  { id: 'views', label: 'Views', plain: 'Penonton masuk', unit: 'count', higher: true },
+  { id: 'orders', label: 'Orders', plain: 'Jumlah pesanan', unit: 'count', higher: true },
+  { id: 'aov', label: 'AOV', plain: 'Nilai belanja per pesanan', unit: 'currency', higher: true },
+  { id: 'watchGpm', label: 'Watch GPM', plain: 'Omzet per 1.000 penonton', unit: 'currency', higher: true },
 ];
+
+// Kalimat utama per tahap funnel yang paling bocor.
+const LEAK_TEXT = {
+  ttr: { headline: 'Live jarang dimampiri dari FYP', fix: 'perbaiki tampilan awal & judul live' },
+  ttrPreview: { headline: 'Live jarang dimampiri dari FYP', fix: 'perbaiki tampilan awal & judul live' },
+  retention1m: { headline: 'Penonton cepat pergi', fix: 'perbaiki script pembuka & energi host' },
+  avgViewDuration: { headline: 'Penonton cepat pergi', fix: 'perbaiki script pembuka & energi host' },
+  liveCtr: { headline: 'Penonton jarang klik keranjang', fix: 'perbaiki ajakan klik & susunan etalase' },
+  ctor: { headline: 'Banyak yang klik, sedikit yang beli', fix: 'perbaiki penawaran & cara closing' },
+  paymentRate: { headline: 'Banyak pesanan belum dibayar', fix: 'ingatkan pembayaran & follow up pembeli' },
+};
 
 export function gradeOf(score) {
   if (!ok(score)) return { key: 'none', label: 'Data kurang', status: 'info' };
   if (score >= 75) return { key: 'good', label: 'Sehat', status: 'good' };
   if (score >= 55) return { key: 'ok', label: 'Cukup', status: 'ok' };
-  if (score >= 35) return { key: 'warning', label: 'Perlu perhatian', status: 'warning' };
-  return { key: 'critical', label: 'Kritis', status: 'critical' };
+  if (score >= 35) return { key: 'warning', label: 'Perlu dibenahi', status: 'warning' };
+  return { key: 'critical', label: 'Bermasalah', status: 'critical' };
 }
 
 /**
@@ -75,8 +93,11 @@ export function analyze({ reported, history = [], snapshots = [], settings = {},
   const S = (id) => K[id]?.status ?? null;
   const bad = (id) => BAD.has(S(id));
   const fine = (id) => S(id) === 'ok' || S(id) === 'good';
-  const val = (id, unit) => fmt(v[id], unit ?? K[id]?.unit);
-  const goal = (id) => `${K[id].higher ? '≥' : '≤'} ${fmt(K[id].good, K[id].unit)}`;
+  const tech = (...ids) => ids.filter((id) => K[id] && ok(K[id].value))
+    .map((id) => `${K[id].label} ${fmt(K[id].value, K[id].unit)} (patokan ${K[id].higher ? '≥' : '≤'} ${fmt(K[id].good, K[id].unit)})`)
+    .join(' · ');
+  // patokan ditulis dengan basis yang sama dengan nilainya ("dari 100" vs "dari 1.000")
+  const normal = (id) => (K[id].higher ? `normalnya minimal ${perHundred(K[id].good, baseFor(K[id].value))}` : `sebaiknya di bawah ${fmt(K[id].good, K[id].unit)}`);
 
   // ---- Skor per tahap & skor kesehatan ----
   const stages = {};
@@ -97,10 +118,10 @@ export function analyze({ reported, history = [], snapshots = [], settings = {},
   // ---- Funnel ----
   const paid = ok(v.orders) && ok(v.paymentRate) ? v.orders * (v.paymentRate / 100) : null;
   const funnel = [
-    { id: 'impressions', label: 'Muncul di feed', metric: 'Impressions', value: v.impressions },
-    { id: 'views', label: 'Masuk live', metric: 'Views', value: v.views, rateKpi: 'ttr' },
-    { id: 'views1min', label: 'Bertahan > 1 menit', metric: '> 1 min. views', value: v.views1min, rateKpi: 'retention1m' },
-    { id: 'productClicks', label: 'Klik produk', metric: 'Product clicks', value: v.productClicks, rateKpi: 'liveCtr', rateNote: 'dari views' },
+    { id: 'impressions', label: 'Muncul di FYP', metric: 'Impressions', value: v.impressions },
+    { id: 'views', label: 'Mampir masuk live', metric: 'Views', value: v.views, rateKpi: 'ttr' },
+    { id: 'views1min', label: 'Betah > 1 menit', metric: '> 1 min. views', value: v.views1min, rateKpi: 'retention1m' },
+    { id: 'productClicks', label: 'Klik keranjang', metric: 'Product clicks', value: v.productClicks, rateKpi: 'liveCtr', rateNote: 'dari penonton' },
     { id: 'orders', label: 'Pesan', metric: 'Orders', value: v.orders, rateKpi: 'ctor', rateNote: 'dari klik' },
     { id: 'paid', label: 'Bayar', metric: 'Paid orders', value: paid, rateKpi: 'paymentRate' },
   ].map((f) => ({
@@ -112,160 +133,184 @@ export function analyze({ reported, history = [], snapshots = [], settings = {},
 
   // ---- Bottleneck: tahap funnel dengan skor terendah ----
   const leakCandidates = [
-    { kpi: ok(K.ttr.value) ? 'ttr' : 'ttrPreview', step: 'Feed → Masuk live' },
-    { kpi: ok(K.retention1m.value) ? 'retention1m' : 'avgViewDuration', step: 'Masuk → Bertahan' },
-    { kpi: 'liveCtr', step: 'Menonton → Klik produk' },
+    { kpi: ok(K.ttr.value) ? 'ttr' : 'ttrPreview', step: 'FYP → Masuk live' },
+    { kpi: ok(K.retention1m.value) ? 'retention1m' : 'avgViewDuration', step: 'Masuk → Betah' },
+    { kpi: 'liveCtr', step: 'Nonton → Klik keranjang' },
     { kpi: 'ctor', step: 'Klik → Pesan' },
     { kpi: 'paymentRate', step: 'Pesan → Bayar' },
   ].filter((c) => ok(K[c.kpi]?.score));
   leakCandidates.sort((a, b) => K[a.kpi].score - K[b.kpi].score);
   const worst = leakCandidates[0];
   const bottleneck = worst && K[worst.kpi].score < 65
-    ? { ...worst, label: K[worst.kpi].label, value: K[worst.kpi].value, unit: K[worst.kpi].unit, status: K[worst.kpi].status, goal: goal(worst.kpi), stage: K[worst.kpi].stage }
+    ? {
+        ...worst,
+        ...LEAK_TEXT[worst.kpi],
+        label: K[worst.kpi].label,
+        value: K[worst.kpi].value,
+        unit: K[worst.kpi].unit,
+        status: K[worst.kpi].status,
+        goal: `${K[worst.kpi].higher ? '≥' : '≤'} ${fmt(K[worst.kpi].good, K[worst.kpi].unit)}`,
+        stage: K[worst.kpi].stage,
+      }
     : null;
 
   // ---- Insight ----
   const out = [];
-  const add = (i) => out.push(i);
+  const add = (i) => out.push({ ...i, why: cap(i.why) });
   const sevOf = (...ids) => (ids.some((id) => S(id) === 'critical') ? 'critical' : 'warning');
   const highTicket = ok(v.aov) && v.aov >= cfg.highTicketAov;
 
-  // 1) Traffic: orang tidak tap masuk (pakai TTR terburuk antara total & via preview)
+  // 1) Orang di FYP tidak mampir masuk (pakai yang terburuk antara TTR total & via preview)
   const ttrIds = ['ttr', 'ttrPreview'].filter((id) => ok(K[id].value));
   const ttrId = ttrIds.sort((a, b) => K[a].score - K[b].score)[0] ?? 'ttr';
   const hookOk = ttrIds.length > 0 && ttrIds.every(fine);
   if (bad(ttrId)) {
-    const retentionFine = fine('avgViewDuration') || fine('retention1m');
+    const contentOk = fine('avgViewDuration') || fine('retention1m');
     add({
       id: 'traffic-ttr', severity: sevOf(ttrId), stage: 'traffic',
-      title: retentionFine ? 'Isi live bagus, tapi "etalase"-nya kurang memancing' : 'Sedikit orang yang tap masuk dari feed',
-      detail: `Hanya ${val(ttrId)} orang yang masuk setelah melihat live kamu (patokan ${goal(ttrId)})` +
-        (ok(v.impressions) ? ` — live sudah tampil ${val('impressions', 'count')} kali di feed.` : '.') +
-        (retentionFine ? ' Orang yang masuk justru betah, jadi masalahnya ada di tampilan preview, bukan isi live.' : ''),
+      title: contentOk ? 'Isi live sudah bagus, tapi tampilan depannya kurang menarik' : 'Live muncul di FYP, tapi jarang yang mampir',
+      why: `${ok(v.impressions) ? `Live kamu tampil ${angka(v.impressions)} kali di FYP, tapi` : 'Dari orang yang melihat live kamu di FYP,'} cuma ${perHundred(K[ttrId].value)} orang yang masuk (${normal(ttrId)}).` +
+        (contentOk ? ' Yang sudah masuk justru betah — jadi yang perlu dibenahi adalah tampilan 3 detik pertama yang dilihat orang di FYP.' : ''),
+      tech: tech(ttrId),
       metrics: [ttrId, 'impressions', 'views'],
       actions: [
-        'Pastikan produk & host terlihat jelas di tengah frame dengan cahaya terang — preview di FYP kecil.',
-        'Selalu ada aksi di layar (demo, unboxing, try-on). Preview yang diam jarang di-tap.',
-        'Pakai judul live yang menyebut promo spesifik, mis. "Flash sale 99rb sampai jam 21.00".',
-        'Hindari momen kosong: host jangan menunduk lihat HP atau meninggalkan frame.',
+        act('Admin', 'Kamera', 'Rapikan tampilan layar: produk & wajah host di tengah, lampu lebih terang, kamera lebih dekat. Orang di FYP melihat layar kecil — harus langsung jelas jual apa.'),
+        act('Admin', 'Judul', 'Ganti judul live jadi promo yang jelas, contoh: "FLASH SALE 99RB sampai jam 9 malam" — jangan judul umum seperti "Live sore".'),
+        act('Host', 'Script', 'Jangan ada momen diam. Selalu sedang demo, unboxing, atau mencoba produk — preview di FYP hanya menampilkan potongan beberapa detik.'),
+        act('Admin', 'Setting', 'Tambahkan banner harga / tulisan promo besar di background yang terbaca dari layar HP.'),
       ],
     });
   }
 
-  // 2) Retensi: orang cepat keluar
+  // 2) Penonton cepat pergi
   if (bad('avgViewDuration') || bad('retention1m')) {
     const parts = [];
-    if (ok(v.avgViewDuration)) parts.push(`rata-rata hanya ${val('avgViewDuration', 'duration')} per view`);
-    if (ok(v.retention1m)) parts.push(`cuma ${val('retention1m', 'percent')} yang bertahan > 1 menit`);
+    if (ok(v.avgViewDuration)) parts.push(`rata-rata orang cuma menonton ${durasi(v.avgViewDuration)}`);
+    if (ok(v.retention1m)) parts.push(`hanya ${perHundred(v.retention1m)} orang yang bertahan lebih dari 1 menit`);
+    const ref = ok(v.retention1m) ? 'retention1m' : 'avgViewDuration';
     add({
       id: 'retention', severity: sevOf('avgViewDuration', 'retention1m'), stage: 'retention',
-      title: hookOk ? 'Hook menarik, tapi penonton cepat pergi' : 'Penonton cepat keluar dari live',
-      detail: `Penonton ${parts.join(' dan ')} (patokan ${ok(v.retention1m) ? goal('retention1m') : goal('avgViewDuration')}).` +
-        (hookOk ? ' Orang sudah mau masuk, jadi yang perlu dibenahi adalah apa yang mereka lihat di 10–30 detik pertama.' : '') +
-        ' Retensi rendah membuat algoritma mengurangi dorongan traffic.',
+      title: hookOk ? 'Banyak yang mampir, tapi cepat pergi — isi live belum menahan' : 'Penonton cepat keluar dari live',
+      why: `${parts.join(', dan ')} (${ref === 'retention1m' ? normal('retention1m') : `normalnya minimal ${durasi(K.avgViewDuration.good)}`}). Kalau penonton cepat pergi, TikTok mengurangi kiriman penonton baru.`,
+      tech: tech('avgViewDuration', 'retention1m'),
       metrics: ['avgViewDuration', 'retention1m', 'views1min'],
       actions: [
-        'Ulangi hook tiap 2–3 menit: sebut promo + alasan bertahan ("5 menit lagi harga turun!").',
-        'Sapa penonton baru dengan nama dan langsung jelaskan apa yang sedang dijual.',
-        'Buat alasan menunggu: hitung mundur flash sale, kuis, giveaway di menit tertentu.',
-        'Ganti angle / demo produk berkala supaya selalu ada hal baru di layar.',
+        act('Host', 'Script', 'Perbaiki script pembuka dan ulangi tiap 2–3 menit: "Yang baru masuk, hari ini ada promo ___, tunggu sampai jam ___ ada harga spesial!"'),
+        act('Host', 'Script', 'Kasih alasan untuk bertahan: hitung mundur flash sale, kuis berhadiah, atau "giveaway di menit ke-30, jangan ke mana-mana!"'),
+        act('Host', 'Energi', 'Naikkan energi host: sapa nama penonton yang masuk, jangan menunduk melihat HP terlalu lama.'),
+        act('Admin', 'Kamera', 'Ganti angle / close-up produk setiap beberapa menit supaya layar tidak monoton.'),
       ],
     });
   }
 
-  // 3) Minat produk: penonton tidak klik
+  // 3) Penonton tidak klik keranjang
   if (bad('liveCtr') || bad('ctr') || bad('productExposure')) {
     const watching = fine('avgViewDuration') || fine('retention1m');
     const exposureBad = bad('productExposure');
-    const bits = [];
-    if (ok(v.liveCtr)) bits.push(`LIVE CTR ${val('liveCtr', 'percent')} (patokan ${goal('liveCtr')})`);
-    if (ok(v.ctr)) bits.push(`CTR produk ${val('ctr', 'percent')}`);
-    if (ok(v.productExposure)) bits.push(`exposure produk ${val('productExposure', 'percent')}`);
+    const ref = ok(v.liveCtr) ? 'liveCtr' : ok(v.ctr) ? 'ctr' : 'productExposure';
     add({
       id: 'interest', severity: sevOf('liveCtr', 'ctr', 'productExposure'), stage: 'interest',
-      title: exposureBad ? 'Produk jarang ditampilkan ke penonton' : watching ? 'Penonton betah, tapi tidak membuka keranjang' : 'Penonton tidak tertarik klik produk',
-      detail: `${bits.join(', ')}.` + (watching ? ' Penonton sudah bertahan cukup lama — yang kurang adalah ajakan dan cara produk ditampilkan.' : ''),
+      title: exposureBad ? 'Produk jarang ditampilkan ke penonton' : watching ? 'Penonton betah, tapi jarang buka keranjang kuning' : 'Penonton tidak tertarik klik produk',
+      why: ref === 'productExposure'
+        ? `Produk hanya muncul ke sekitar ${perHundred(v.productExposure)} penonton (${normal('productExposure')}).`
+        : `Dari penonton yang masuk, cuma ${perHundred(K[ref].value)} yang klik produk (${normal(ref)}).` +
+          (watching ? ' Penonton sudah betah — yang kurang adalah ajakan dan cara produk ditampilkan.' : ''),
+      tech: tech('liveCtr', 'ctr', 'productExposure'),
       metrics: ['liveCtr', 'ctr', 'productExposure', 'productClicks'],
       actions: [
-        exposureBad ? 'Aktifkan keranjang sejak awal & pin produk yang sedang dibahas; ganti pin setiap ganti produk.' : 'Pin produk yang sedang dibahas, ganti pin setiap ganti produk.',
-        'CTA jelas tiap 2–3 menit: "klik keranjang kuning, produk nomor 3".',
-        'Sebut harga & potongan dengan jelas sambil tunjukkan produk dekat ke kamera.',
-        'Mulai dengan produk paling murah / best seller untuk memancing klik pertama.',
+        act('Admin', 'Etalase', exposureBad
+          ? 'Aktifkan keranjang dari awal live dan pin produk terus-menerus; ganti pin setiap host pindah produk.'
+          : 'Pin produk yang sedang dibahas host, dan ganti pin setiap host pindah produk.'),
+        act('Host', 'Script', 'Tambahkan ajakan klik yang jelas tiap 2–3 menit: "Klik keranjang kuning ya kak, nomor 3, yang warna hitam!"'),
+        act('Admin', 'Etalase', 'Susun ulang etalase: taruh produk paling laku / paling murah di nomor 1–3, singkirkan produk yang jarang laku.'),
+        act('Host', 'Script', 'Sebut harga dan potongannya dengan jelas sambil memegang produk dekat ke kamera.'),
       ],
     });
   }
 
-  // 4) Konversi: klik banyak, order sedikit
+  // 4) Banyak klik, sedikit yang beli
   if (bad('ctor') || (!ok(v.ctor) && bad('orderRate'))) {
-    const interestFine = fine('liveCtr');
+    const interestOk = fine('liveCtr');
     const id = ok(v.ctor) ? 'ctor' : 'orderRate';
-    const detailBase = ok(v.productClicks) && ok(v.orders)
-      ? `${fmt(v.productClicks, 'count')} klik produk hanya menghasilkan ${fmt(v.orders, 'count')} pesanan (${K[id].label} ${val(id)}, patokan ${goal(id)}).`
-      : `${K[id].label} ${val(id)} (patokan ${goal(id)}).`;
+    const why = ok(v.productClicks) && ok(v.orders)
+      ? `Produk diklik ${angka(v.productClicks)} kali, tapi cuma jadi ${angka(v.orders)} pesanan — sekitar ${perHundred(K[id].value)} klik (${normal(id)}).`
+      : `Hanya ${perHundred(K[id].value)} ${id === 'ctor' ? 'klik' : 'penonton'} yang jadi pesanan (${normal(id)}).`;
+    const actions = [
+      act('Admin', 'Promo', 'Cek harga di keranjang: harus sama atau lebih murah dari yang disebut host. Pasang voucher toko / potongan ongkir khusus live.'),
+      act('Host', 'Script', 'Perbaiki script closing: harga coret → harga live → bonus → batas waktu. Contoh: "Normalnya 250 ribu, khusus live 199 ribu plus bonus pouch, cuma sampai jam 9!"'),
+      act('Host', 'Script', 'Jawab keraguan sebelum ditanya: garansi, bisa COD, ongkir, pilihan ukuran/warna, dan tunjukkan review pembeli.'),
+      act('Admin', 'Promo', 'Buat flash sale 5–10 menit dan umumkan sisa stok: "Tinggal 5 lagi ya kak!"'),
+    ];
+    if (highTicket) {
+      actions.splice(2, 0, act('Admin', 'Etalase', `Harga rata-rata ${rupiah(v.aov)} per pesanan termasuk tinggi. Tambahkan pilihan lebih murah di etalase (paket kecil / ukuran mini) dan tawarkan cicilan / PayLater.`));
+    } else {
+      actions.push(act('Host', 'Script', 'Peragakan cara checkout di layar: klik keranjang → pilih varian → pakai voucher → bayar.'));
+    }
     add({
       id: 'conversion', severity: sevOf(id), stage: 'conversion',
-      title: interestFine ? 'Minat tinggi, tapi tidak jadi beli — masalah di penawaran' : 'Sedikit sekali yang checkout',
-      detail: detailBase +
-        (interestFine ? ' Orang sudah klik (minat ada), jadi hambatannya ada di harga, promo, kepercayaan, atau proses checkout.' : '') +
-        (highTicket ? ` AOV ${fmt(v.aov, 'currency')} termasuk tinggi — konversi rendah wajar, tapi masih bisa didorong dengan rasa aman & opsi bayar.` : ''),
+      title: interestOk ? 'Banyak yang klik produk, tapi hampir tidak ada yang checkout' : 'Sedikit sekali yang membeli',
+      why: why + (interestOk ? ' Orang sudah tertarik, tapi ada yang membuat ragu membayar — biasanya harga, promo, ongkir, atau kepercayaan.' : ''),
+      tech: tech(id, 'aov'),
       metrics: [id, 'productClicks', 'orders', 'aov'],
-      actions: [
-        'Cek halaman produk: harga, voucher, dan stok harus sama dengan yang diucapkan host.',
-        'Beri alasan beli SEKARANG: flash sale berwaktu, stok terbatas, bonus untuk N pembeli pertama.',
-        'Jawab keraguan berulang-ulang: garansi, review/testimoni, ongkir, COD.',
-        highTicket ? 'Tawarkan paylater / cicilan atau paket hemat sebagai pintu masuk.' : 'Pandu cara checkout langkah demi langkah di layar.',
-      ],
+      actions,
     });
   }
 
-  // 5) Pembayaran
+  // 5) Pesanan belum dibayar
   if (bad('paymentRate')) {
     add({
       id: 'payment', severity: sevOf('paymentRate'), stage: 'conversion',
-      title: 'Banyak pesanan belum dibayar',
-      detail: `Payment rate ${val('paymentRate', 'percent')} (patokan ${goal('paymentRate')}).` +
-        (ok(paid) && ok(v.orders) ? ` Dari ${fmt(v.orders, 'count')} pesanan, sekitar ${Math.round(v.orders - paid)} belum dibayar.` : ''),
+      title: 'Banyak pesanan yang belum dibayar',
+      why: `Cuma ${perHundred(v.paymentRate)} pesanan yang benar-benar dibayar (${normal('paymentRate')}).` +
+        (ok(paid) && ok(v.orders) ? ` Sekitar ${angka(v.orders - paid)} pesanan masih menggantung.` : ''),
+      tech: tech('paymentRate'),
       metrics: ['paymentRate', 'orders'],
       actions: [
-        'Ingatkan penonton yang sudah checkout untuk segera bayar sebelum promo berakhir.',
-        'Pastikan metode bayar populer aktif (COD, e-wallet, paylater).',
-        'Setelah live, follow up pesanan "Belum dibayar" lewat chat toko.',
+        act('Host', 'Script', 'Ingatkan berkala: "Yang sudah checkout langsung dibayar ya kak, promonya cuma sampai jam ___!"'),
+        act('Admin', 'Toko', 'Pastikan COD, e-wallet, dan PayLater aktif di toko.'),
+        act('Admin', 'Follow up', 'Setelah live, chat pembeli yang belum bayar dan ingatkan batas waktunya.'),
       ],
     });
   }
 
   // 6) Iklan
   if (ok(v.roi)) {
-    const est = source.roi === 'estimate' ? ' (estimasi: GMV total ÷ biaya iklan)' : '';
+    const est = source.roi === 'estimate' ? ' (perkiraan dari omzet total ÷ biaya iklan)' : '';
     if (S('roi') === 'critical') {
       add({
         id: 'ads-loss', severity: 'critical', stage: 'ads',
-        title: 'Iklan rugi — ROI di bawah titik impas',
-        detail: `ROI ${val('roi', 'ratio')}${est} di bawah titik impas ${fmt(cfg.breakEvenRoi, 'ratio')}. Biaya iklan ${val('adsCost', 'currency')}.`,
+        title: 'Iklan sedang rugi',
+        why: `Setiap Rp1 untuk iklan hanya kembali ${perRupiah(v.roi)}${est}, di bawah titik impas toko ${perRupiah(cfg.breakEvenRoi)}. Biaya iklan live ini ${rupiah(v.adsCost)}.`,
+        tech: tech('roi', 'tacos'),
         metrics: ['roi', 'adsCost', 'tacos'],
         actions: [
-          'Turunkan budget atau naikkan target ROI di GMV Max.',
-          'Arahkan iklan ke produk dengan CTOR terbaik.',
-          'Benahi konversi live dulu sebelum menambah budget — iklan hanya memperbesar hasil yang ada.',
+          act('Owner', 'Iklan', 'Turunkan budget GMV Max hari ini, atau naikkan target ROI-nya.'),
+          act('Owner', 'Iklan', 'Pakai iklan hanya untuk produk yang paling laku.'),
+          act('Host', 'Evaluasi', 'Benahi cara jualan di live dulu (lihat saran lain) — iklan hanya memperbesar hasil yang sudah ada.'),
         ],
       });
     } else if (S('roi') === 'warning') {
       add({
         id: 'ads-below', severity: 'warning', stage: 'ads',
-        title: 'ROI iklan di bawah target',
-        detail: `ROI ${val('roi', 'ratio')}${est}, target toko ${fmt(cfg.targetRoi, 'ratio')}.`,
+        title: 'Iklan belum mencapai target',
+        why: `Setiap Rp1 iklan kembali ${perRupiah(v.roi)}${est}, target toko ${perRupiah(cfg.targetRoi)}.`,
+        tech: tech('roi'),
         metrics: ['roi', 'adsCost'],
-        actions: ['Naikkan target ROI di GMV Max atau kurangi budget di jam sepi.', 'Pastikan live sedang ramai & konversi bagus saat iklan berjalan.'],
+        actions: [
+          act('Owner', 'Iklan', 'Kurangi budget iklan di jam sepi, nyalakan lagi saat live sedang ramai.'),
+          act('Owner', 'Iklan', 'Naikkan target ROI di GMV Max supaya iklan lebih selektif.'),
+        ],
       });
     } else if (S('roi') === 'good' && ok(v.adsCost)) {
       add({
         id: 'ads-scale', severity: 'info', stage: 'ads',
-        title: 'Iklan sangat efisien — ada ruang menambah budget',
-        detail: `ROI ${val('roi', 'ratio')}${est} jauh di atas target ${fmt(cfg.targetRoi, 'ratio')}. Setiap Rp1 iklan menghasilkan sekitar Rp${v.roi.toFixed(1)}.`,
+        title: 'Iklan sangat untung — saatnya tambah budget',
+        why: `Setiap Rp1 iklan kembali ${perRupiah(v.roi)}${est}, jauh di atas target toko ${perRupiah(cfg.targetRoi)}.`,
+        tech: tech('roi'),
         metrics: ['roi', 'adsCost'],
         actions: [
-          `Naikkan budget GMV Max bertahap 20–30% sambil menjaga ROI di atas ${fmt(cfg.targetRoi, 'ratio')}.`,
-          'Jadwalkan iklan di jam penonton paling ramai.',
+          act('Owner', 'Iklan', `Naikkan budget GMV Max pelan-pelan, 20–30% dulu, sambil cek hasilnya tetap di atas ${perRupiah(cfg.targetRoi)} per Rp1.`),
+          act('Owner', 'Iklan', 'Fokuskan budget di jam live yang paling ramai.'),
         ],
       });
     }
@@ -274,26 +319,32 @@ export function analyze({ reported, history = [], snapshots = [], settings = {},
   // 7) Interaksi
   const engBad = ['commentRate', 'followRate', 'shareRate'].filter(bad);
   if (engBad.length) {
+    const words = { commentRate: 'komentar', followRate: 'follow', shareRate: 'share' };
     add({
       id: 'engagement', severity: engBad.some((id) => S(id) === 'critical') && engBad.length >= 2 ? 'critical' : 'warning', stage: 'engagement',
-      title: 'Live sepi interaksi',
-      detail: engBad.map((id) => `${K[id].label} ${val(id)} (patokan ${goal(id)})`).join(', ') +
-        '. Komentar, follow, dan share adalah sinyal yang membuat algoritma menambah traffic.',
+      title: 'Live sepi interaksi, TikTok jadi kurang mendorong',
+      why: engBad.map((id) => `cuma ${perHundred(K[id].value)} penonton yang ${words[id]}`).join(', ') +
+        '. Komentar, follow, dan share adalah sinyal ke TikTok bahwa live kamu layak dikirim ke lebih banyak orang.',
+      tech: tech(...engBad),
       metrics: engBad,
       actions: [
-        'Ajukan pertanyaan pilihan ganda ("ketik 1 kalau mau warna hitam, 2 kalau putih").',
-        'Giveaway untuk yang komentar/follow, umumkan pemenang di live.',
-        'Balas komentar dengan menyebut nama — orang lain ikut berkomentar.',
-        'Ajak follow dengan alasan: "follow biar dapat notif flash sale berikutnya".',
+        act('Host', 'Script', 'Pancing komentar dengan pertanyaan gampang: "Ketik 1 kalau mau warna hitam, ketik 2 kalau putih!"'),
+        act('Host', 'Interaksi', 'Balas komentar sambil menyebut nama: "Makasih kak Rina, ini aku tunjukin ya…"'),
+        act('Admin', 'Promo', 'Adakan giveaway kecil untuk yang komentar + follow, umumkan pemenangnya di live.'),
+        act('Host', 'Script', 'Ajak follow dengan alasan: "Follow dulu biar dapat notif flash sale besok!"'),
       ],
     });
   } else if (['commentRate', 'followRate'].every((id) => S(id) === 'good') && (bad('ctor') || bad('liveCtr'))) {
     add({
       id: 'engaged-not-buying', severity: 'warning', stage: 'conversion',
-      title: 'Penonton aktif, tapi bukan pembeli',
-      detail: 'Interaksi bagus namun klik/pembelian rendah. Penonton datang untuk hiburan, bukan belanja.',
+      title: 'Penonton ramai, tapi datang untuk hiburan — bukan belanja',
+      why: 'Komentar dan follow bagus, tapi yang klik atau membeli sedikit.',
+      tech: tech('commentRate', 'liveCtr', 'ctor'),
       metrics: ['commentRate', 'liveCtr', 'ctor'],
-      actions: ['Arahkan obrolan kembali ke produk; kurangi topik di luar jualan.', 'Uji produk yang lebih relevan dengan audiens yang aktif.'],
+      actions: [
+        act('Host', 'Script', 'Kurangi obrolan di luar topik, arahkan setiap obrolan kembali ke produk.'),
+        act('Admin', 'Etalase', 'Coba produk lain yang lebih cocok dengan penonton yang aktif ini.'),
+      ],
     });
   }
 
@@ -302,20 +353,31 @@ export function analyze({ reported, history = [], snapshots = [], settings = {},
     if (v.itemsPerOrder < 1.15) {
       add({
         id: 'basket', severity: 'info', stage: 'conversion',
-        title: 'Pembeli hanya ambil 1 item',
-        detail: `Rata-rata ${v.itemsPerOrder.toFixed(2)} item per pesanan.`,
+        title: 'Pembeli cuma ambil 1 barang',
+        why: `Rata-rata hanya ${v.itemsPerOrder.toLocaleString('id-ID', { maximumFractionDigits: 1 })} barang per pesanan.`,
+        tech: `Item per order ${v.itemsPerOrder.toFixed(2)}`,
         metrics: ['itemsPerOrder', 'itemsSold', 'orders'],
-        actions: ['Buat bundling "beli 2 lebih hemat".', 'Tawarkan produk pelengkap murah saat orang checkout.'],
+        actions: [
+          act('Admin', 'Etalase', 'Buat paket bundling "Beli 2 lebih hemat" dan taruh di etalase nomor 1.'),
+          act('Host', 'Script', 'Tawarkan produk pelengkap: "Sekalian sama ___-nya kak, tambah 20 ribu aja."'),
+        ],
       });
     } else if (v.itemsPerOrder >= 1.6) {
-      add({ id: 'basket-good', severity: 'good', stage: 'conversion', title: 'Bundling berjalan', detail: `Rata-rata ${v.itemsPerOrder.toFixed(2)} item per pesanan.`, metrics: ['itemsPerOrder'], actions: [] });
+      add({
+        id: 'basket-good', severity: 'good', stage: 'conversion',
+        title: 'Paket bundling jalan — pertahankan',
+        why: `Rata-rata ${v.itemsPerOrder.toLocaleString('id-ID', { maximumFractionDigits: 1 })} barang per pesanan.`,
+        tech: `Item per order ${v.itemsPerOrder.toFixed(2)}`,
+        metrics: ['itemsPerOrder'],
+        actions: [],
+      });
     }
   }
 
   // 9) Dibanding median live sebelumnya
   if (hasHistory) {
     const rows = [
-      ...kpis.filter((k) => ok(k.delta)).map((k) => ({ id: k.id, label: k.label, unit: k.unit, higher: k.higher, value: k.value, median: k.median, delta: k.delta })),
+      ...kpis.filter((k) => ok(k.delta)).map((k) => ({ id: k.id, label: k.label, plain: k.plain, unit: k.unit, higher: k.higher, value: k.value, median: k.median, delta: k.delta })),
       ...TREND_METRICS.map((t) => {
         const m = med(t.id);
         return ok(v[t.id]) && ok(m) && m !== 0 ? { ...t, value: v[t.id], median: m, delta: (v[t.id] - m) / Math.abs(m) } : null;
@@ -325,45 +387,57 @@ export function analyze({ reported, history = [], snapshots = [], settings = {},
       .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
     const better = rows.filter((r) => (r.higher ? r.delta : -r.delta) >= cfg.deviationThreshold)
       .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
-    const line = (r) => `${r.label} ${fmt(r.value, r.unit)} vs biasanya ${fmt(r.median, r.unit)} (${r.delta > 0 ? '+' : ''}${Math.round(r.delta * 100)}%)`;
+    const line = (r) => `${r.plain}: ${plainValue(r.value, r.unit)}, biasanya ${plainValue(r.median, r.unit)} (${change(r.delta)})`;
+    const techLine = (r) => `${r.label} ${fmt(r.value, r.unit)} vs median ${fmt(r.median, r.unit)}`;
     if (worse.length) {
       add({
         id: 'vs-history-down', severity: worse.some((r) => Math.abs(r.delta) >= 0.5) ? 'critical' : 'warning', stage: 'history',
-        title: `Jomplang dibanding ${recent.length} live terakhir`,
-        detail: worse.slice(0, 4).map(line).join(' · '),
+        title: `Lebih jelek dari biasanya (dibanding ${recent.length} live terakhir)`,
+        why: worse.slice(0, 4).map(line).join('. ') + '.',
+        tech: worse.slice(0, 4).map(techLine).join(' · '),
         metrics: worse.map((r) => r.id),
-        actions: ['Bandingkan apa yang berbeda: host, jam tayang, produk, promo, budget iklan.', 'Buka menu Riwayat untuk melihat tren lengkap metrik ini.'],
+        actions: [
+          act('Owner', 'Evaluasi', 'Bandingkan dengan live terbaikmu: apa yang beda — host, jam tayang, produk, promo, atau budget iklan?'),
+          act('Admin', 'Evaluasi', 'Kalau hari ini ganti host / produk / jam, coba kembali ke format live yang biasanya berhasil.'),
+        ],
       });
     }
     if (better.length) {
       add({
         id: 'vs-history-up', severity: 'good', stage: 'history',
-        title: 'Lebih baik dari biasanya',
-        detail: better.slice(0, 4).map(line).join(' · '),
+        title: 'Lebih bagus dari biasanya — catat resepnya',
+        why: better.slice(0, 4).map(line).join('. ') + '.',
+        tech: better.slice(0, 4).map(techLine).join(' · '),
         metrics: better.map((r) => r.id),
-        actions: ['Catat apa yang dilakukan di live ini supaya bisa diulang.'],
+        actions: [act('Admin', 'Catatan', 'Tulis di catatan live apa yang beda hari ini (host, promo, produk, jam) supaya bisa diulang.')],
       });
     }
   }
 
-  // 10) Momentum dalam satu live (butuh ≥ 2 snapshot)
+  // 10) Momentum dalam satu live (butuh ≥ 2 snapshot + jam mulai, atau ≥ 3 snapshot)
   const momentum = momentumOf(snapshots);
   if (momentum) {
     if (momentum.gmvChange <= -0.4) {
       add({
         id: 'momentum-down', severity: 'warning', stage: 'momentum',
-        title: 'Momentum penjualan melambat',
-        detail: `Dalam ${momentum.minutes} menit terakhir GMV per jam ${fmt(momentum.lastGmvRate, 'currency')}, turun ${Math.round(-momentum.gmvChange * 100)}% dibanding periode sebelumnya.`,
+        title: `Penjualan melambat di ${momentum.minutes} menit terakhir`,
+        why: `Omzet per jam sekarang ${rupiah(momentum.lastGmvRate)}, ${change(momentum.gmvChange)} dibanding sebelumnya.`,
+        tech: `GMV/jam interval terakhir ${fmt(momentum.lastGmvRate, 'currency')} vs ${fmt(momentum.prevGmvRate, 'currency')}`,
         metrics: ['gmv', 'gmvPerHour'],
-        actions: ['Lakukan "reset": flash sale atau giveaway untuk menarik penonton lagi.', 'Ganti ke produk best seller.', 'Cek energi host — pertimbangkan rotasi host.'],
+        actions: [
+          act('Admin', 'Promo', 'Lakukan "reset" sekarang: flash sale kilat 5 menit atau giveaway.'),
+          act('Host', 'Etalase', 'Pindah membahas produk yang paling laku.'),
+          act('Owner', 'Host', 'Kalau host sudah kelihatan lelah, pertimbangkan ganti / rotasi host.'),
+        ],
       });
     } else if (momentum.gmvChange >= 0.4) {
       add({
         id: 'momentum-up', severity: 'good', stage: 'momentum',
-        title: 'Momentum penjualan naik',
-        detail: `Dalam ${momentum.minutes} menit terakhir GMV per jam ${fmt(momentum.lastGmvRate, 'currency')}, naik ${Math.round(momentum.gmvChange * 100)}% dibanding periode sebelumnya.`,
+        title: `Penjualan sedang naik di ${momentum.minutes} menit terakhir`,
+        why: `Omzet per jam sekarang ${rupiah(momentum.lastGmvRate)}, ${change(momentum.gmvChange)} dibanding sebelumnya.`,
+        tech: `GMV/jam interval terakhir ${fmt(momentum.lastGmvRate, 'currency')} vs ${fmt(momentum.prevGmvRate, 'currency')}`,
         metrics: ['gmv'],
-        actions: ['Pertahankan format & produk saat ini; ini waktu yang tepat menambah budget iklan.'],
+        actions: [act('Host', 'Script', 'Jangan ubah formula: pertahankan produk & cara bicara sekarang. Ini waktu yang pas untuk menambah budget iklan.')],
       });
     }
   }
@@ -373,8 +447,9 @@ export function analyze({ reported, history = [], snapshots = [], settings = {},
   if (strengths.length) {
     add({
       id: 'strengths', severity: 'good', stage: 'summary',
-      title: 'Yang sudah bagus',
-      detail: strengths.map((k) => `${k.label} ${fmt(k.value, k.unit)}`).join(' · '),
+      title: 'Yang sudah bagus — pertahankan',
+      why: strengths.map((k) => `${k.plain}: ${k.id === 'roi' ? perRupiah(k.value) : plainValue(k.value, k.unit)}`).join(' · '),
+      tech: strengths.map((k) => `${k.label} ${fmt(k.value, k.unit)}`).join(' · '),
       metrics: strengths.map((k) => k.id),
       actions: [],
     });
@@ -385,32 +460,31 @@ export function analyze({ reported, history = [], snapshots = [], settings = {},
   if (missing.length) {
     add({
       id: 'coverage', severity: 'info', stage: 'data',
-      title: `${16 - missing.length} dari 16 metrik inti tersedia`,
-      detail: `Belum ada: ${missing.map((m) => m.label).join(', ')}. Centang metrik ini di dashboard TikTok agar insight lebih tajam.`,
+      title: `Saran bisa lebih tajam: ${missing.length} metrik belum dicentang`,
+      why: `Centang ini di dashboard TikTok: ${missing.map((m) => m.label).join(', ')}.`,
+      tech: `${16 - missing.length} dari 16 metrik inti tersedia`,
       metrics: missing.map((m) => m.id),
       actions: [],
     });
   }
 
-  out.sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity]);
+  // Urutan: tingkat keparahan, lalu masalah utama (bottleneck) paling depan.
+  const LEAK_INSIGHT = { ttr: 'traffic-ttr', ttrPreview: 'traffic-ttr', retention1m: 'retention', avgViewDuration: 'retention', liveCtr: 'interest', ctor: 'conversion', paymentRate: 'payment' };
+  const mainId = bottleneck ? LEAK_INSIGHT[bottleneck.kpi] : null;
+  out.sort((a, b) => SEV_RANK[a.severity] - SEV_RANK[b.severity] || (b.id === mainId) - (a.id === mainId));
 
-  // ---- Aksi prioritas ----
+  // ---- Aksi prioritas: aksi pertama dari tiap masalah terberat, topik tidak dobel ----
   const actionsNow = [];
-  for (const i of out) {
-    if (i.severity !== 'critical' && i.severity !== 'warning') continue;
-    if (i.actions[0] && !actionsNow.includes(i.actions[0])) actionsNow.push(i.actions[0]);
-    if (actionsNow.length >= 3) break;
-  }
-  if (actionsNow.length < 3) {
-    for (const i of out) {
-      for (const a of i.actions.slice(1)) {
-        if (actionsNow.length >= 3) break;
-        if ((i.severity === 'critical' || i.severity === 'warning' || i.severity === 'info') && !actionsNow.includes(a)) actionsNow.push(a);
-      }
-    }
-  }
+  const seen = new Set();
+  const push = (a) => {
+    if (actionsNow.length >= 3 || seen.has(a.text)) return;
+    seen.add(a.text);
+    actionsNow.push(a);
+  };
+  for (const i of out) if (i.severity === 'critical' || i.severity === 'warning') if (i.actions[0]) push(i.actions[0]);
+  for (const i of out) if (i.severity !== 'good') i.actions.slice(1).forEach(push);
 
-  const summary = buildSummary({ health, bottleneck, strengths, kpis });
+  const summary = buildSummary({ health, bottleneck, strengths });
 
   return {
     values: v, source, kpis, stages, health, funnel, bottleneck, insights: out, actionsNow, summary, momentum,
@@ -419,15 +493,22 @@ export function analyze({ reported, history = [], snapshots = [], settings = {},
   };
 }
 
+const VERDICT = {
+  good: 'Live ini sehat.',
+  ok: 'Live ini cukup baik, masih bisa ditingkatkan.',
+  warning: 'Live ini perlu dibenahi.',
+  critical: 'Live ini sedang bermasalah.',
+};
+
 function buildSummary({ health, bottleneck, strengths }) {
-  if (!ok(health.score)) return 'Data belum cukup untuk menilai kesehatan live. Lengkapi metrik inti.';
-  const parts = [`Live ${health.label.toLowerCase()} (skor ${Math.round(health.score)}).`];
-  if (bottleneck) parts.push(`Kebocoran terbesar di tahap ${bottleneck.step}: ${bottleneck.label} ${fmt(bottleneck.value, bottleneck.unit)}, patokan ${bottleneck.goal}.`);
-  if (strengths.length) parts.push(`Kekuatan: ${strengths.slice(0, 2).map((k) => k.label).join(' & ')}.`);
+  if (!ok(health.score)) return 'Angka belum cukup untuk menilai live ini. Centang 16 metrik inti di dashboard TikTok.';
+  const parts = [VERDICT[health.key] || ''];
+  if (bottleneck) parts.push(`Masalah utama: ${bottleneck.headline.toLowerCase()} — ${bottleneck.fix}.`);
+  if (strengths.length) parts.push(`Yang sudah bagus: ${strengths.slice(0, 2).map((k) => lowerFirst(k.plain)).join(' dan ')}.`);
   return parts.join(' ');
 }
 
-/** Bandingkan laju GMV di interval terakhir vs interval-interval sebelumnya dalam satu live. */
+/** Bandingkan laju GMV di interval terakhir vs interval sebelumnya dalam satu live. */
 export function momentumOf(snapshots) {
   const s = (snapshots || [])
     .filter((x) => ok(x?.reported?.gmv) && x.capturedAt)

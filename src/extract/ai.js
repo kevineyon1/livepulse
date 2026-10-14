@@ -105,13 +105,25 @@ export async function coachWithClaude({ apiKey, analysis, live, history }) {
   const rawLines = Object.entries(analysis.values)
     .map(([id, v]) => `${id}=${Math.round(v * 100) / 100}`)
     .join(', ');
-  const ruleLines = analysis.insights.map((i) => `- [${i.severity}] ${i.title}: ${i.detail}`).join('\n');
+  const ruleLines = analysis.insights.map((i) => `- [${i.severity}] ${i.title}: ${i.why}`).join('\n');
   const schema = {
     type: 'object',
     properties: {
       ringkasan: { type: 'string' },
       diagnosa: { type: 'array', items: { type: 'object', properties: { judul: { type: 'string' }, penjelasan: { type: 'string' } }, required: ['judul', 'penjelasan'], additionalProperties: false } },
-      aksi_sekarang: { type: 'array', items: { type: 'string' } },
+      aksi_sekarang: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            untuk: { type: 'string', enum: ['Host', 'Admin', 'Owner'] },
+            topik: { type: 'string', enum: ['Script', 'Etalase', 'Promo', 'Kamera', 'Judul', 'Setting', 'Energi', 'Interaksi', 'Iklan', 'Follow up', 'Evaluasi'] },
+            tindakan: { type: 'string' },
+          },
+          required: ['untuk', 'topik', 'tindakan'],
+          additionalProperties: false,
+        },
+      },
       untuk_live_berikutnya: { type: 'array', items: { type: 'string' } },
     },
     required: ['ringkasan', 'diagnosa', 'aksi_sekarang', 'untuk_live_berikutnya'],
@@ -124,10 +136,16 @@ export async function coachWithClaude({ apiKey, analysis, live, history }) {
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
       output_config: { effort: 'medium', format: { type: 'json_schema', schema } },
-      system: 'Kamu konsultan live commerce TikTok Shop Indonesia yang membantu admin & host live. Jawab dalam Bahasa Indonesia yang santai tapi profesional. Fokus pada penyebab paling mungkin dan tindakan konkret yang bisa dilakukan host/admin. Gunakan angka dari data; jangan mengarang angka baru.',
+      system: [
+        'Kamu pelatih live commerce TikTok Shop Indonesia yang bicara langsung ke host, admin, dan pemilik toko.',
+        'Pakai bahasa lapangan sehari-hari, bukan istilah teknis: tulis "script", "etalase", "keranjang kuning", "pin produk", "flash sale", "voucher", "angle kamera", "lampu", "judul live" — hindari singkatan seperti CTR, CTOR, TTR, GPM, AOV, retensi, konversi.',
+        'Sebut angka dengan cara yang mudah dibayangkan, misalnya "cuma 3 dari 100 orang" atau "rata-rata nonton 23 detik".',
+        'Setiap tindakan harus bisa langsung dikerjakan dan spesifik, contoh: "Perbaiki script closing: sebut harga coret, harga live, bonus, lalu batas waktu" atau "Ganti etalase nomor 1 dengan produk paling laku". Bila cocok, beri contoh kalimat yang bisa diucapkan host.',
+        'Gunakan angka dari data; jangan mengarang angka baru.',
+      ].join(' '),
       messages: [{
         role: 'user',
-        content: `Live: ${live.title || '(tanpa judul)'} · host ${live.host || '-'} · ${live.date || ''}\nSkor kesehatan: ${analysis.health.score != null ? Math.round(analysis.health.score) : '-'} (${analysis.health.label})\nBottleneck: ${analysis.bottleneck ? analysis.bottleneck.step : '-'}\n\nKPI:\n${kpiLines}\n\nSemua nilai: ${rawLines}\n\nTemuan mesin aturan:\n${ruleLines}\n\nJumlah live pembanding di histori: ${history}\n\nBerikan ringkasan 2-3 kalimat, 2-4 diagnosa (kenapa angka jomplang & hubungan antar metrik), maksimal 3 aksi untuk SEKARANG saat live, dan 3-5 saran untuk live berikutnya.`,
+        content: `Live: ${live.title || '(tanpa judul)'} · host ${live.host || '-'} · ${live.date || ''}\nSkor kesehatan: ${analysis.health.score != null ? Math.round(analysis.health.score) : '-'} (${analysis.health.label})\nMasalah utama: ${analysis.bottleneck ? analysis.bottleneck.headline : '-'}\n\nKPI:\n${kpiLines}\n\nSemua nilai: ${rawLines}\n\nTemuan mesin aturan:\n${ruleLines}\n\nJumlah live pembanding di histori: ${history}\n\nBerikan: ringkasan 2 kalimat yang langsung bilang apa yang salah; 2-4 diagnosa (apa yang terjadi di live & kenapa, dalam bahasa sederhana); maksimal 3 tindakan untuk SEKARANG saat live (masing-masing jelas siapa yang mengerjakan & topiknya); dan 3-5 saran untuk live berikutnya.`,
       }],
     });
     return readJson(response);

@@ -68,7 +68,24 @@ test('analyze: perbandingan histori', () => {
   const r = analyze({ reported: SAMPLE, history });
   const down = r.insights.find((i) => i.id === 'vs-history-down');
   assert.ok(down, 'harus ada insight turun vs histori');
-  assert.match(down.detail, /GMV per jam/);
+  assert.match(down.why, /Omzet per jam/);
+});
+
+test('saran memakai bahasa lapangan & langsung jadi tindakan', () => {
+  const r = analyze({ reported: SAMPLE });
+  const conv = r.insights.find((i) => i.id === 'conversion');
+  // nilai & patokan memakai basis yang sama supaya mudah dibandingkan
+  assert.match(conv.why, /3,8 dari 1\.000 klik \(normalnya minimal 60 dari 1\.000\)/);
+  for (const i of r.insights) {
+    assert.doesNotMatch(`${i.title} ${i.why}`, /\b(CTOR|CTR|TTR|GPM|AOV)\b/, `istilah teknis bocor di "${i.title}"`);
+    for (const a of i.actions) {
+      assert.ok(['Host', 'Admin', 'Owner'].includes(a.who), a.text);
+      assert.ok(a.tag && a.text.length > 20);
+    }
+  }
+  assert.ok(r.actionsNow.every((a) => a.who && a.tag && a.text));
+  assert.equal(r.bottleneck.headline, 'Banyak yang klik, sedikit yang beli');
+  assert.match(r.summary, /perbaiki penawaran & cara closing/);
 });
 
 test('momentum dalam satu live', () => {

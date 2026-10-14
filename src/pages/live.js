@@ -8,6 +8,7 @@ import { coachWithClaude } from '../extract/ai.js';
 import { STAGES } from '../core/benchmarks.js';
 import { labelOf, unitOf, METRIC_BY_ID, DERIVED } from '../core/metrics.js';
 import { fmt, dateLabel, timeLabel, signedPct } from '../core/format.js';
+import { perHundred } from '../core/plain.js';
 import { icon } from '../ui/icons.js';
 import { esc, num, statusChip, sevChip, $ } from '../ui/dom.js';
 import { gauge, meter, lineChart, STATUS_COLOR } from '../ui/charts.js';
@@ -79,7 +80,7 @@ export async function render(root, { id, q = {} }) {
       </div>
       <div style="min-width:0">
         <span class="grade"><span class="dot s-${a.health.status}" style="background:${STATUS_COLOR[statusKey]}"></span>${esc(a.health.label)}</span>
-        <h1 id="hero-title">${a.bottleneck ? `Kebocoran terbesar: ${esc(a.bottleneck.step)}` : Number.isFinite(a.health.score) ? 'Tidak ada kebocoran besar di funnel' : 'Lengkapi metrik untuk penilaian'}</h1>
+        <h1 id="hero-title">${a.bottleneck ? esc(a.bottleneck.headline) : Number.isFinite(a.health.score) ? 'Tidak ada masalah besar — pertahankan' : 'Lengkapi metrik untuk penilaian'}</h1>
         <p class="summary">${esc(a.summary)}</p>
         <div class="hero-kpis">
           ${heroKpi('GMV', 'gmv', 'currency')}
@@ -95,19 +96,19 @@ export async function render(root, { id, q = {} }) {
       <div class="now-badge">${icon('bolt')}</div>
       <div>
         <div class="card-title">Lakukan sekarang</div>
-        <div class="card-sub">3 aksi dengan dampak terbesar menurut data live ini</div>
-        <ol class="now-list">${a.actionsNow.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>
+        <div class="card-sub">Langsung jalankan di live ini — urut dari yang paling berdampak</div>
+        <ol class="now-list">${a.actionsNow.map((x) => `<li><div>${actTag(x)}<p>${esc(x.text)}</p></div></li>`).join('')}</ol>
       </div>
     </section>` : ''}
 
     <section class="card" data-scroll>
       <div class="card-head">
-        <div><div class="card-title">Funnel penonton → pembeli</div><div class="card-sub">Lebar batang memakai skala log agar semua tahap terlihat. Garis merah = tahap paling bocor.</div></div>
-        ${a.bottleneck ? statusChip(a.bottleneck.status, `Bocor: ${a.bottleneck.step}`) : ''}
+        <div><div class="card-title">Perjalanan penonton sampai membeli</div><div class="card-sub">Di tahap mana orang paling banyak "hilang". Kotak merah = masalah utama.</div></div>
+        ${a.bottleneck ? statusChip(a.bottleneck.status, `Masalah: ${a.bottleneck.headline}`) : ''}
       </div>
       <div class="funnel" id="funnel">
         ${a.funnel.map((f, i) => `
-          ${i > 0 ? `<div class="f-conv"><span></span><div class="arrow">${icon('arrowDown')}${f.rateKpi && Number.isFinite(f.rate) ? `<b style="color:var(--text)">${esc(fmt(f.rate, 'percent'))}</b> ${esc(f.rateNote || '')} ${statusChip(f.status)} <span class="muted">patokan ≥ ${esc(fmt(f.good, 'percent'))}</span>` : '<span class="muted">rasio belum tersedia</span>'}</div></div>` : ''}
+          ${i > 0 ? `<div class="f-conv"><span></span><div class="arrow">${icon('arrowDown')}${f.rateKpi && Number.isFinite(f.rate) ? `<b style="color:var(--text)">${esc(perHundred(f.rate))}</b> ${esc(FUNNEL_NOUN[f.id] || '')} ${statusChip(f.status)} <span class="muted">normal ${esc(perHundred(f.good))}</span>` : '<span class="muted">angka belum tersedia</span>'}</div></div>` : ''}
           <div class="f-step ${f.rateKpi && f.rateKpi === leakKpi ? 'f-leak' : ''}">
             <div class="name">${esc(f.label)}<small>${esc(f.metric)}</small></div>
             <div class="f-track"><div class="f-bar ${f.id === 'paid' || a.source[f.id] === 'derived' ? 'est' : ''} ${Number.isFinite(f.value) ? '' : 'none'}" style="width:${widthOf(f.value)}%"></div></div>
@@ -117,14 +118,15 @@ export async function render(root, { id, q = {} }) {
     </section>
 
     <section>
-      <div class="page-head" style="margin-bottom:16px"><div class="section-title">Diagnosa</div><span class="muted" style="font-size:13px">${a.historyCount >= 3 ? `dibandingkan dengan ${a.historyCount} live sebelumnya` : `perbandingan histori aktif setelah 3 live tersimpan (sekarang ${a.historyCount})`}</span></div>
+      <div class="page-head" style="margin-bottom:16px"><div class="section-title">Apa yang salah & harus diapakan</div><span class="muted" style="font-size:13px">${a.historyCount >= 3 ? `dibandingkan dengan ${a.historyCount} live sebelumnya` : `perbandingan dengan live sebelumnya aktif setelah 3 live tersimpan (sekarang ${a.historyCount})`}</span></div>
       <div class="insights" data-scroll="stagger">
         ${a.insights.map((i) => `
           <article class="card insight s-${i.severity}">
             <div class="row">${sevChip(i.severity)}<span class="muted" style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em">${esc(stageLabel(i.stage))}</span></div>
             <h3>${esc(i.title)}</h3>
-            <p>${esc(i.detail)}</p>
-            ${i.actions.length ? `<ul>${i.actions.map((x) => `<li>${icon('arrowRight')}<span>${esc(x)}</span></li>`).join('')}</ul>` : ''}
+            <p>${esc(i.why)}</p>
+            ${i.actions.length ? `<div class="todo-head">Yang harus dilakukan</div><ul class="todo">${i.actions.map((x) => `<li>${actTag(x)}<span>${esc(x.text)}</span></li>`).join('')}</ul>` : ''}
+            ${i.tech ? `<p class="tech">Angka teknis: ${esc(i.tech)}</p>` : ''}
           </article>`).join('')}
       </div>
     </section>
@@ -132,18 +134,18 @@ export async function render(root, { id, q = {} }) {
     <section class="card coach" id="coach" hidden></section>
 
     <section>
-      <div class="page-head" style="margin-bottom:16px"><div class="section-title">Skor per metrik</div><span class="muted" style="font-size:13px">Garis putih = live ini · garis abu = median live kamu · zona warna = patokan</span></div>
+      <div class="page-head" style="margin-bottom:16px"><div class="section-title">Detail angka</div><span class="muted" style="font-size:13px">Garis putih = live ini · garis abu = biasanya di tokomu · warna = merah buruk → hijau bagus</span></div>
       ${kpisByStage.map(([s, ks]) => `
         <div style="margin-bottom:22px">
           <div class="row" style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><span class="overline" style="color:var(--text-2)">${esc(STAGES[s].label)}</span>${a.stages[s].score != null ? `<span class="score-pill s-${a.stages[s].grade.status}">${Math.round(a.stages[s].score)}</span>` : ''}</div>
           <div class="kpi-grid" data-scroll="stagger">
             ${ks.map((k) => `
               <div class="card kpi">
-                <div class="top"><span class="label">${esc(k.label)}</span>${statusChip(k.status)}</div>
+                <div class="top"><span class="label">${esc(k.plain)}</span>${statusChip(k.status)}</div>
                 ${num(k.value, k.unit)}
                 ${meter(k)}
                 <div class="why">${esc(k.why)}</div>
-                <div class="top"><span class="src">${k.source === 'reported' ? 'dari dashboard' : k.source === 'estimate' ? 'estimasi' : 'dihitung'}</span>${Number.isFinite(k.delta) ? `<span class="delta ${k.higher === k.delta > 0 ? 'up' : 'down'}" style="font-size:12px;font-weight:700">${signedPct(k.delta)} vs median</span>` : ''}</div>
+                <div class="top"><span class="src">${esc(k.label)} · ${k.source === 'reported' ? 'dari dashboard' : k.source === 'estimate' ? 'estimasi' : 'dihitung'}</span>${Number.isFinite(k.delta) ? `<span class="delta ${k.higher === k.delta > 0 ? 'up' : 'down'}" style="font-size:12px;font-weight:700">${signedPct(k.delta)} vs median</span>` : ''}</div>
               </div>`).join('')}
           </div>
         </div>`).join('') || '<div class="card empty"><p>Belum ada KPI yang bisa dinilai. Tambahkan screenshot dengan 16 metrik inti.</p></div>'}
@@ -247,8 +249,23 @@ export async function render(root, { id, q = {} }) {
   if (reduced()) root.querySelectorAll('.gauge .score').forEach((el) => (el.textContent = Number.isFinite(a.health.score) ? Math.round(a.health.score) : '–'));
 }
 
+// Kata benda untuk baris "x dari 100 ___" di antara tahap funnel.
+const FUNNEL_NOUN = {
+  views: 'orang di FYP yang masuk',
+  views1min: 'penonton yang betah',
+  productClicks: 'penonton yang klik keranjang',
+  orders: 'klik yang jadi pesanan',
+  paid: 'pesanan yang dibayar',
+};
+
+/** Label "HOST · Script" di depan setiap aksi. */
+function actTag(a) {
+  const who = String(a.who || '').toLowerCase();
+  return `<span class="act-tag who-${esc(who)}">${esc(a.who)} · ${esc(a.tag)}</span>`;
+}
+
 function stageLabel(s) {
-  return { traffic: 'Traffic', retention: 'Retensi', interest: 'Minat produk', conversion: 'Konversi', ads: 'Iklan', engagement: 'Interaksi', history: 'vs histori', momentum: 'Momentum', summary: 'Ringkasan', data: 'Data' }[s] || s;
+  return { traffic: 'Penonton masuk', retention: 'Penonton betah', interest: 'Klik produk', conversion: 'Pembelian', ads: 'Iklan', engagement: 'Interaksi', history: 'Dibanding biasanya', momentum: 'Selama live', summary: 'Ringkasan', data: 'Data' }[s] || s;
 }
 
 function medianOf(lives, live, id, windowSize) {
@@ -273,7 +290,7 @@ async function runCoach(root, settings, a, live) {
         <p style="font-size:16px;font-weight:600">${esc(out.ringkasan)}</p>
         <div class="grid-2">${out.diagnosa.map((d) => `<div class="mx" style="grid-template-columns:1fr"><div><h4>${esc(d.judul)}</h4><p>${esc(d.penjelasan)}</p></div></div>`).join('')}</div>
         <div class="grid-2">
-          <div><h4>Sekarang, saat live</h4><ol>${out.aksi_sekarang.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></div>
+          <div><h4>Sekarang, saat live</h4><ul class="todo">${out.aksi_sekarang.map((x) => `<li>${actTag({ who: x.untuk, tag: x.topik })}<span>${esc(x.tindakan)}</span></li>`).join('')}</ul></div>
           <div><h4>Untuk live berikutnya</h4><ul>${out.untuk_live_berikutnya.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>
         </div>
       </div>`;

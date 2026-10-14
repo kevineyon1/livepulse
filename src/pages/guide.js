@@ -1,6 +1,6 @@
 // Panduan: 16 metrik yang harus dicentang di dashboard TikTok LIVE + alasannya.
 import { CORE_16, DERIVED } from '../core/metrics.js';
-import { DEFAULT_KPIS, STAGES } from '../core/benchmarks.js';
+import { DEFAULT_KPIS } from '../core/benchmarks.js';
 import { fmt } from '../core/format.js';
 import { icon } from '../ui/icons.js';
 import { esc } from '../ui/dom.js';
@@ -14,15 +14,16 @@ const PANEL = [
   ['Ads', ['Ads Cost', 'GMV Max ROI']],
 ];
 
+// Pola "jomplang" → apa yang terjadi → apa yang dikerjakan (bahasa lapangan).
 const PATTERNS = [
-  ['TTR rendah, durasi tonton bagus', 'Isi live menarik tapi preview di FYP tidak memancing tap → benahi framing, cahaya, aksi di layar, judul promo.'],
-  ['TTR bagus, durasi tonton rendah', 'Hook berhasil tapi orang cepat pergi → ulangi hook tiap 2–3 menit, jaga energi host, beri alasan menunggu.'],
-  ['Retensi bagus, LIVE CTR rendah', 'Penonton betah tapi tidak membuka keranjang → pin produk, CTA "klik keranjang nomor X", tunjukkan harga.'],
-  ['LIVE CTR tinggi, CTOR rendah', 'Minat ada tapi tidak checkout → cek harga/voucher, beri urgensi, jawab keraguan (garansi, ongkir, COD).'],
-  ['Payment rate rendah', 'Banyak pesanan menggantung → ingatkan bayar, pastikan metode bayar aktif, follow up setelah live.'],
-  ['ROI jauh di atas target', 'Iklan efisien → naikkan budget GMV Max bertahap sambil menjaga ROI.'],
-  ['Interaksi tinggi, konversi rendah', 'Penonton datang untuk hiburan → arahkan obrolan ke produk, uji produk yang relevan.'],
-  ['Turun > 30% dari median toko', 'Angka jomplang vs kebiasaan toko → bandingkan host, jam, produk, promo, budget iklan.'],
+  ['Banyak tampil di FYP, sedikit yang mampir', 'Tampilan depan live kurang menarik → rapikan kamera & lampu, produk di tengah layar, ganti judul jadi promo yang jelas.'],
+  ['Banyak yang mampir, tapi cepat pergi', 'Isi live belum menahan → perbaiki script pembuka, ulangi promo tiap 2–3 menit, naikkan energi host.'],
+  ['Penonton betah, tapi jarang klik keranjang', 'Ajakan kurang jelas → pin produk yang sedang dibahas, host bilang "klik keranjang kuning nomor 3", susun ulang etalase.'],
+  ['Banyak klik, sedikit yang beli', 'Ada yang bikin ragu bayar → cek harga & voucher, perbaiki script closing (harga coret → harga live → bonus → batas waktu).'],
+  ['Banyak pesanan belum dibayar', 'Pembeli lupa / ragu → ingatkan bayar saat live, aktifkan COD & PayLater, chat pembeli setelah live.'],
+  ['Iklan sangat untung', 'Saatnya tambah budget → naikkan GMV Max 20–30% dulu sambil cek hasilnya.'],
+  ['Ramai komentar, tapi tidak ada yang beli', 'Penonton datang untuk hiburan → kurangi ngobrol di luar topik, arahkan ke produk.'],
+  ['Jauh lebih jelek dari biasanya', 'Ada yang berubah → bandingkan host, jam tayang, produk, promo, dan budget iklan dengan live terbaik.'],
 ];
 
 const WHY = {
@@ -91,7 +92,7 @@ export async function render(root) {
 
     <section>
       <div class="section-title" style="margin-bottom:6px">Cara sistem menemukan angka yang "jomplang"</div>
-      <p class="page-desc" style="margin-bottom:16px">Setiap live dinilai per tahap funnel (${Object.values(STAGES).map((s) => esc(s.label)).join(' → ')}). Tahap dengan skor terendah = kebocoran terbesar. Lalu pola antar-metrik dibaca untuk menemukan penyebabnya:</p>
+      <p class="page-desc" style="margin-bottom:16px">Sistem melihat di tahap mana penonton paling banyak "hilang" (masuk → betah → klik → beli → bayar), lalu menerjemahkannya jadi tindakan:</p>
       <div class="metric-explain" data-scroll="stagger">
         ${PATTERNS.map(([a, b], i) => `<div class="mx"><span class="n">${icon(i < 5 ? 'target' : i === 5 ? 'bolt' : i === 6 ? 'chat' : 'trend')}</span><div><h4>${esc(a)}</h4><p>${esc(b)}</p></div></div>`).join('')}
       </div>

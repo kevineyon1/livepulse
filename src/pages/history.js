@@ -77,7 +77,7 @@ export async function render(root) {
     <section class="card" data-reveal>
       <div class="table-wrap">
         <table class="t" id="tbl">
-          <thead><tr><th><span class="sr-only">Bandingkan</span></th><th>Tanggal</th><th>Live</th><th>Host</th><th class="n">Skor</th><th class="n">GMV</th><th class="n">GMV/jam</th><th class="n">Views</th><th class="n">CTOR</th><th class="n">ROI</th><th>Kebocoran</th></tr></thead>
+          <thead><tr><th><span class="sr-only">Bandingkan</span></th><th>Tanggal</th><th>Live</th><th>Host</th><th class="n">Skor</th><th class="n">GMV</th><th class="n">GMV/jam</th><th class="n">Views</th><th class="n">CTOR</th><th class="n">ROI</th><th>Masalah utama</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -130,7 +130,7 @@ export async function render(root) {
         <td class="n">${esc(fmt(a.values.views))}</td>
         <td class="n">${esc(fmt(a.values.ctor, 'percent'))}</td>
         <td class="n">${esc(fmt(a.values.roi, 'ratio'))}</td>
-        <td>${a.bottleneck ? statusChip(a.bottleneck.status, a.bottleneck.step) : '<span class="muted">—</span>'}</td>
+        <td>${a.bottleneck ? statusChip(a.bottleneck.status, a.bottleneck.headline) : '<span class="muted">—</span>'}</td>
       </tr>`;
     }).join('') || '<tr><td colspan="11" class="muted" style="text-align:center;padding:30px">Tidak ada live yang cocok dengan filter.</td></tr>';
   }
@@ -233,7 +233,7 @@ function shortDate(iso) {
 
 function exportCsv(rows) {
   const ids = [...METRICS.map((m) => m.id), ...Object.keys(DERIVED).filter((k) => !METRICS.some((m) => m.id === k))];
-  const head = ['tanggal', 'jam_mulai', 'judul', 'host', 'skor', 'kebocoran', ...ids];
+  const head = ['tanggal', 'jam_mulai', 'judul', 'host', 'skor', 'masalah_utama', ...ids];
   const cell = (x) => {
     const s = x == null ? '' : String(x);
     return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -243,7 +243,7 @@ function exportCsv(rows) {
     lines.push([
       live.date, live.startTime, live.title, live.host,
       Number.isFinite(a.health.score) ? Math.round(a.health.score) : '',
-      a.bottleneck?.step ?? '',
+      a.bottleneck?.headline ?? '',
       ...ids.map((id) => (Number.isFinite(a.values[id]) ? Math.round(a.values[id] * 1000) / 1000 : '')),
     ].map(cell).join(','));
   }

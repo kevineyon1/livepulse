@@ -506,3 +506,17 @@ table.t a { color: var(--text); font-weight: 700; }
 @media (forced-colors: active) {
   .chip, .score-pill { border: 1px solid CanvasText; }
 }
+
+/* ============ Aksi (bahasa lapangan) ============ */
+.act-tag {
+  display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 6px;
+  font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap;
+  background: rgba(69,171,170,.14); color: #8fdcda; border: 1px solid rgba(69,171,170,.25);
+}
+.act-tag.who-admin { background: rgba(143,184,255,.12); color: #b4cdff; border-color: rgba(143,184,255,.22); }
+.act-tag.who-owner { background: rgba(244,183,64,.12); color: #f7cf7d; border-color: rgba(244,183,64,.22); }
+.now-list li p { margin-top: 6px; font-size: 15.5px; line-height: 1.5; }
+.todo-head { font-size: 11px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); margin-top: 2px; }
+.insight ul.todo li, .coach ul.todo li { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,.03); border: 1px solid var(--line); }
+.coach ul.todo { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.insight .tech { font: 500 11.5px var(--mono); color: var(--text-3); border-top: 1px dashed var(--line); padding-top: 10px; margin-top: 2px; }

@@ -92,7 +92,7 @@ export async function render(root) {
 
 function liveCard(live, a) {
   const issue = a.bottleneck
-    ? statusChip(a.bottleneck.status, `Bocor: ${a.bottleneck.step}`)
+    ? statusChip(a.bottleneck.status, a.bottleneck.headline)
     : a.insights.find((i) => i.severity === 'critical' || i.severity === 'warning')
       ? statusChip('warning', a.insights.find((i) => i.severity === 'critical' || i.severity === 'warning').title)
       : statusChip(a.health.status === 'info' ? 'info' : 'good', a.health.label);
